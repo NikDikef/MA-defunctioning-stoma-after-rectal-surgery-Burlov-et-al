@@ -1,0 +1,158 @@
+library(tidyverse)
+library(metafor)
+library(meta)
+library(dmetar)
+
+df <- readxl::read_excel("Data/Original/df.xlsx") |> 
+ mutate(Author_year = paste0(`First Author`, ", ", `Publication Year`, " ", ifelse(is.na(`Дубли`), "", `Дубли`)),
+        Стома = replace_values(Стома,
+                               "смешанная" ~ "ileo + colo",
+                               "илео" ~ "ileo",
+                               "коло" ~ "colo"),
+        Дизайн = replace_values(Дизайн,
+                                "РКИ" ~ "RCT",
+                                "ПК" ~ "Prospective cohort",
+                                "РК" ~ "Retrospective cohor")) |> 
+ rename(Stomy = Стома,
+        Design = Дизайн)
+
+
+
+m.prop <- df |> 
+ filter_out(is.na(`Несостоятельность`)) |> 
+ metaprop(event = `Несостоятельность`,
+          n = N,
+          studlab = Author_year,
+          data = _,
+          method = "GLMM",
+          sm = "PAS",
+          common = F,
+          random = T,
+          prediction = T,
+          method.random.ci = "HK")
+summary(m.prop)
+
+
+png(file = "forest-1.png", width = 2400, height = 4000, res = 300)
+forest(m.prop, 
+       common = F, 
+       random = T, 
+       overall = T, 
+       prediction = T,
+       pooled.totals = T, 
+       pooled.events = T, 
+       backtransf = T,
+       print.I2.ci = T, 
+       print.tau2.ci = F,
+       pscale = 100,
+       xlim = c(0, 50),
+       at = seq(0, 50, 5),
+       smlab = "",
+       xlab = "Anastomotic leak, %",
+       leftcols = c("studlab", "n", "event"),
+       leftlabs = c("Author, Year (specificity)", "N sample", "Events"),
+       rightcols = c("effect", "ci"),
+       rightlabs = c("Proportion, %", "95% CI"),
+       #text.random = "Модель случайных эффектов",
+       #text.predict = "Предиктивный интервал",
+       digits = 2,
+       fontsize = 9,
+       spacing = 0.85,
+       col.square = "grey55",
+       col.diamond.random = "blue",
+       col.predict = "red"
+       )
+dev.off()
+
+
+m.prop.sub.stoma <- update(m.prop, 
+       subgroup = Stomy, 
+       tau.common = F,
+       prediction.subgroup = T,
+       method.predict = "HTS",
+       subset = Stomy != "colo")
+summary(m.prop.sub.stoma)
+
+pool_group <- !(m.prop.sub.stoma$subgroup.levels %in%
+                 c("colo"))
+
+png(file = "forest-2.png", width = 2400, height = 4300, res = 300)
+forest(m.prop.sub.stoma,
+       common = F, 
+       random = T, 
+       overall = T, 
+       prediction = T,
+       pooled.totals = T, 
+       pooled.events = T, 
+       backtransf = T,
+       print.I2.ci = T, 
+       print.tau2.ci = F,
+       subgroup = pool_group,
+       subgroup.hetstat = pool_group,
+       random.subgroup = pool_group,
+       prediction.subgroup = pool_group,
+       pscale = 100,
+       xlim = c(0, 50),
+       at = seq(0, 50, 5),
+       smlab = "",
+       xlab = "Anastomotic leak, %",
+       leftcols = c("studlab", "n", "event"),
+       leftlabs = c("Author, Year (specificity)", "N sample", "Events"),
+       rightcols = c("effect", "ci"),
+       rightlabs = c("Proportion, %", "95% CI"),
+       #text.random = "Модель случайных эффектов",
+       #text.predict = "Предиктивный интервал",
+       digits = 2,
+       fontsize = 9,
+       spacing = 0.85,
+       col.square = "grey55",
+       col.diamond.random = "blue",
+       col.predict = "red"
+)
+dev.off()
+
+
+
+m.prop.sub.design <- update(m.prop, 
+                     subgroup = Design, 
+                     tau.common = F,
+                     prediction.subgroup = T,
+                     method.predict = "HTS")
+summary(m.prop.sub.design)
+
+
+png(file = "forest-3.png", width = 2400, height = 4700, res = 300)
+forest(m.prop.sub.design, 
+       common = F, 
+       random = T, 
+       overall = T, 
+       prediction = T,
+       pooled.totals = T, 
+       pooled.events = T, 
+       backtransf = T,
+       print.I2.ci = T, 
+       print.tau2.ci = F,
+       #subgroup = pool_group,
+       #subgroup.hetstat = pool_group,
+       #random.subgroup = pool_group,
+       #prediction.subgroup = pool_group,
+       pscale = 100,
+       xlim = c(0, 50),
+       at = seq(0, 50, 5),
+       smlab = "",
+       xlab = "Anastomotic leak, %",
+       leftcols = c("studlab", "n", "event"),
+       leftlabs = c("Author, Year (specificity)", "N sample", "Events"),
+       rightcols = c("effect", "ci"),
+       rightlabs = c("Proportion, %", "95% CI"),
+       #text.random = "Модель случайных эффектов",
+       #text.predict = "Предиктивный интервал",
+       digits = 2,
+       fontsize = 9,
+       spacing = 0.85,
+       col.square = "grey55",
+       col.diamond.random = "blue",
+       col.predict = "red"
+)
+dev.off()
+

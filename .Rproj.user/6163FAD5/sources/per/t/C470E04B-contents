@@ -1,0 +1,806 @@
+---
+author: "Никита Бурлов"
+title: "Мета-анализ по частоте НА при стомах"
+subtitle: "Версия 1.0"
+date: today
+format:
+  html:
+    embed-resources: true
+    #embed-resources: false
+    smooth-scroll: true
+    code-fold: true
+    code-overflow: wrap
+    code-block-bg: true
+    code-block-border-left: "#1F77B4FF"
+    code-copy: hover
+    toc: true
+    toc-title: "Оглавление"
+    number-sections: true
+    fig-align: "center"
+  docx:
+    reference-doc: "Data/Example/template.docx"
+    toc: true
+    number-sections: true
+    toc-title: "Оглавление"
+    fig-align: "center"
+crossref:
+  chapters: true
+editor: source
+#echo: true
+echo: false
+warning: false
+message: false
+error: false
+cache: false
+editor_options: 
+  chunk_output_type: console
+knitr:
+  opts_chunk:
+    fig.path: "Data/Results/Figures/"
+    fig.dpi: 400
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(tidyverse)
+library(metafor)
+library(meta)
+library(dmetar)
+library(gtsummary)
+library(flextable)
+
+df <- readxl::read_excel("Data/Original/df.xlsx") |> 
+ mutate(Author_year = paste0(`First Author`, ", ", `Publication Year`, " ", ifelse(is.na(`Дубли`), "", `Дубли`)),
+        Стома = replace_values(Стома,
+                               "смешанная" ~ "ileo + colo",
+                               "илео" ~ "ileo",
+                               "коло" ~ "colo"),
+        Дизайн = factor(replace_values(Дизайн,
+                                "РКИ" ~ "RCT",
+                                "ПК" ~ "Prospective cohort",
+                                "РК" ~ "Retrospective cohort"),
+                        levels = c("Retrospective cohort", "Prospective cohort", "RCT")),
+        Когорта = replace_values(Когорта,
+                                 "Общая" ~ "Part of study",
+                                 "Стома" ~ "Full study")) |> 
+ rename(Stomy = Стома,
+        Design = Дизайн,
+        `Localisation of data` = Когорта,
+        `N sample` = `Общая когорта`,
+        Male = Мужчины,
+        Age = Возраст,
+        BMI = ИМТ,
+        LOS = Койки,
+        `NACh(R)Th` = НАХЛТ,
+        Complications = Осложнения,
+        `Severe complications` = Тяжелые,
+        `Anastomotic leak` = Несостоятельность,
+        Infection = Инфекции,
+        Mortality = Смерть
+        )
+
+tab_tbl <- function(tbl){
+ as_flex_table(tbl) |>
+  theme_box() |> 
+  autofit() |> 
+  fit_to_width(8) |> 
+  font(fontname = "Times New Roman", part = "all") |> 
+  fontsize(size = 12, part = "all") 
+}
+
+tab_ME <- function(ME){
+ flextable(ME) |> 
+  theme_box() |> 
+  autofit() |> 
+  fit_to_width(8) |> 
+  font(fontname = "Times New Roman", part = "all") |> 
+  fontsize(size = 12, part = "all") 
+}
+
+theme_public <- function() {
+ theme_bw(base_size = 16) +
+  theme(strip.background = element_rect(fill = "grey95"))
+}
+
+theme_set(theme_public())
+```
+
+
+# Statistical Analysis
+
+Study characteristics and outcome rates were first summarized descriptively. Continuous variables are reported as mean (SD), median [Q1, Q3] and range; categorical variables as counts and percentages.\
+For each outcome (anastomotic leak, overall or severe postoperative complications, mortality), event counts and sample sizes were analyzed using a generalized linear mixed-effects model (GLMM) with a binomial likelihood, logit link, and random study-level intercept [Schwarzer, Carpenter, and Rücker, 2015].\
+A random-effects model was used throughout, with $\tau^2$ estimated by maximum likelihood [Viechtbauer, 2005]. Confidence intervals were based on the Knapp-Hartung approach for standard random-effects meta-analysis [Knapp and Hartung, 2003]. Heterogeneity was reported as Cochran's $Q$, $I^2$ (with 95% CI) and $\tau^2$ [Higgins and Thompson, 2002], together with a 95% prediction interval for each pooled estimate, calculated with the Higgins-Thompson-Spiegelhalter method [Higgins, Thompson, and Spiegelhalter, 2009].\
+For the anastomotic leak outcome, prespecified subgroup analyses were run by stoma type (ileostomy vs. combined ileostomy/colostomy; colostomy alone included only two studies and was not analyzed separately), study design (retrospective cohort, prospective cohort, RCT) and publication period (<2010, 2010-2019, ≥2020). Each subgroup was pooled with the same random-effects GLMM, $\tau^2$ was estimated separately per subgroup, and differences between subgroups were assessed using a $Q$-test for subgroup differences [Borenstein and Higgins, 2013].\
+Small-study effects were assessed visually using funnel plots and formally using Peters' regression test [Peters et al., 2006]. As a sensitivity analysis, the Duval and Tweedie trim-and-fill method [Duval and Tweedie, 2000] was used to estimate the pooled effect after imputing studies that would restore funnel-plot symmetry; given the substantial heterogeneity, these results were interpreted cautiously. The GLMM estimate was compared with a conventional inverse-variance random-effects meta-analysis of logit-transformed proportions.\
+All analyses were performed in R version 4.6.1, using RStudio version 2026.07.1, with the **meta** [Balduzzi, Rücker, and Schwarzer, 2019], **metafor** [Viechtbauer, 2010] and **dmetar** [Harrer et al., 2021] packages.
+
+# Results
+
+Table 1. Characteristics of studies.
+```{r}
+#| label: 1-characteristics
+
+df |> 
+ select(`Publication Year`, Design, Stomy, `Localisation of data` : `NACh(R)Th`, Complications : Mortality) |> 
+ mutate(`Publication Year` = factor(ifelse(`Publication Year` < 2010, "<2010",
+                                    ifelse(`Publication Year` >= 2020, "≥2020", "2010-2019")),
+                                    levels = c("<2010", "2010-2019", "≥2020")),
+        Male = Male / `N sample` * 100,
+        `NACh(R)Th` = `NACh(R)Th` / `N sample` * 100,
+        Complications	 = Complications / `N sample` * 100,
+        `Severe complications` = `Severe complications` / `N sample` * 100,
+        `Anastomotic leak` = `Anastomotic leak` / `N sample` * 100,
+        Infection = Infection / `N sample` * 100,
+        Mortality = Mortality / `N sample` * 100) |> 
+ tbl_summary(digits = list(all_continuous() ~ c(1, 1),
+                           all_categorical() ~ c(0, 1),
+                           `Publication Year` ~ c(0, 0)), 
+             label = list(Design = "Design of study",
+                          `Localisation of data` = "Data availability",
+                          `N sample` = "Size sample of study",
+                          Male = "Male rate",
+                          `NACh(R)Th` = "NACh(R)Th rate",
+                          Complications = "Complications rate",
+                          `Severe complications` = "Severe complications rate",
+                          `Anastomotic leak` = "Anastomotic leak rate",
+                          Infection = "Infection rate",
+                          Mortality = "Mortality rate"
+                          ),
+             type = list(c(all_continuous(), Mortality) ~ "continuous2"),
+             statistic = list(c(Male, Age, 
+                                BMI, LOS) ~ c("{mean} ({sd})", 
+                                              "{median} [{p25}, {p75}]", 
+                                              "{min} - {max}"),
+                              c(`N sample`, `NACh(R)Th`, `Complications`,
+                                `Severe complications`, `Anastomotic leak`,
+                                Infection, Mortality) ~ c("{median} [{p25}, {p75}]", 
+                                                      "{min} - {max}")),
+             missing_text = "Missing") |> 
+ modify_footnote("stat_0" ~ NA) |> 
+ modify_table_body( ~ .x |>
+                     mutate(
+                      label = case_when(row_type == "label" &
+                                         var_type %in% c("categorical", "dichotomous") ~ paste0(label, "†"),
+                                        row_type == "label" & 
+                                         var_type %in% c("continuous", "continuous2") ~ paste0(label, "*"),
+                                        TRUE ~ label))) |> 
+ tab_tbl() |>
+ align(j = 2, align = "center", part = "all")
+```
+Presentation of variables: * -- Mean (SD) (optional), Median [Q1, Q3] and Min - Max; † -- absolute frequency (percent).
+
+\
+Most studies (88%) were published after 2009 and had a retrospective design (85%). Ileostomies were used in almost 60% of studies, ileostomy or colostomy in 40%, and colostomy alone in only 2.7%. Fifty percent of studies had a sample size within the interquartile range of 100 to 539, with a maximum of 17,867. Estimated pooled values were: mean male proportion 61%, mean age 62 years, mean BMI 24.7 kg/m², and mean LOS 10.9 days; median relative rates were NACh(R)Th 50%, overall complications 30%, severe complications 9.4%, anastomotic leak 5.6%, infection 10.1%, and mortality 0.7%. However, much of the data were unavailable across studies (cumulative absolute counts were not reported, not assessed, or only relative results were presented).
+
+
+```{r}
+#| label: 2-density-eda
+#| eval: false
+
+df |> 
+ select(`Publication Year`, Design, `Localisation of data` : `NACh(R)Th`, Stomy, Complications : Mortality) |> 
+ mutate(`Publication Year` = factor(ifelse(`Publication Year` < 2010, "<2010",
+                                    ifelse(`Publication Year` >= 2020, "≥2020", "2010-2019")),
+                                    levels = c("<2010", "2010-2019", "≥2020")),
+        Male = Male / `N sample` * 100,
+        `NACh(R)Th` = `NACh(R)Th` / `N sample` * 100,
+        Complications	 = Complications / `N sample` * 100,
+        `Severe complications` = `Severe complications` / `N sample` * 100,
+        `Anastomotic leak` = `Anastomotic leak` / `N sample` * 100,
+        Infection = Infection / `N sample` * 100,
+        Mortality = Mortality / `N sample` * 100) |> 
+ pivot_longer(cols = c(Male, `NACh(R)Th`, Complications:Mortality)) |> 
+ ggplot(aes(value)) +
+ #geom_histogram(color = "white", bins = 20) +
+ geom_density() +
+ facet_wrap(~name, scales = "free_y")
+```
+
+\
+Figure 1. Forest plot for pooled incidence of anastomotic leak. 
+```{r}
+#| label: 3-forest-al-overall
+#| fig-width: 9
+#| fig-height: 16
+
+m.prop <- df |> 
+ filter_out(is.na(`Anastomotic leak`)) |> 
+ mutate(`Publication Year` = factor(ifelse(`Publication Year` < 2010, "<2010",
+                                    ifelse(`Publication Year` >= 2020, "≥2020", "2010-2019")),
+                                    levels = c("<2010", "2010-2019", "≥2020"))) |> 
+ metaprop(event = `Anastomotic leak`,
+          n = N,
+          studlab = Author_year,
+          data = _,
+          method = "GLMM",
+          sm = "PLOGIT",
+          common = F,
+          random = T,
+          prediction = T,
+          method.random.ci = "HK",
+          method.predict = "HTS")
+
+forest(m.prop, 
+       common = F, 
+       random = T, 
+       overall = T, 
+       prediction = T,
+       pooled.totals = T, 
+       pooled.events = T, 
+       backtransf = T,
+       print.I2.ci = T, 
+       print.tau2.ci = F,
+       pscale = 100,
+       xlim = c(0, 30),
+       at = seq(0, 30, 5),
+       smlab = "",
+       xlab = "Anastomotic leak, %",
+       leftcols = c("studlab", "n", "event"),
+       leftlabs = c("Author, Year (subset)", "N sample", "Events"),
+       rightcols = c("effect", "ci"),
+       rightlabs = c("Proportion, %", "95% CI"),
+       digits = 2,
+       fontsize = 10,
+       spacing = 1,
+       col.square = "grey75",
+       col.diamond.random = "blue",
+       col.predict = "red"
+       )
+```
+Diamond -- pooled effect, vertical reference line -- pooled estimate.
+
+\
+A total of 26534 patients and 2443 events were included. Statistical heterogeneity was high: I² = 87.3% (95% CI 84.6; 89.6), τ² = 0.4086 (p < 0.0001). In the random-effects model, the pooled incidence of anastomotic leak was 7.12% (95% CI 6.03; 8.4), with a prediction interval of 2.07%; 21.78%. On average, the expected rate of anastomotic leak after TME with primary anastomosis and a defunctioning stoma is around 7%, but in a new study the observed rate could reasonably range from 2% to 21%.
+
+\
+Figure 2. Forest plot for pooled incidence of anastomotic leak in subgroup analysis (type stoma).
+```{r}
+#| label: 4-forest-al-stoma
+#| fig-width: 9
+#| fig-height: 17
+
+m.prop.sub.stoma <- update(m.prop, 
+       subgroup = Stomy, 
+       tau.common = F,
+       prediction.subgroup = T,
+       method.predict = "HTS",
+       subset = Stomy != "colo")
+
+pool_group <- !(m.prop.sub.stoma$subgroup.levels %in%
+                 c("colo"))
+
+forest(m.prop.sub.stoma,
+       common = F, 
+       random = T, 
+       overall = F, 
+       prediction = F,
+       pooled.totals = T, 
+       pooled.events = T, 
+       backtransf = T,
+       print.I2 = T,
+       print.I2.ci = T, 
+       print.tau2.ci = F,
+       overall.hetstat = F,
+       subgroup = pool_group,
+       subgroup.hetstat = pool_group,
+       random.subgroup = pool_group,
+       prediction.subgroup = pool_group,
+       pscale = 100,
+       xlim = c(0, 30),
+       at = seq(0, 30, 5),
+       smlab = "",
+       xlab = "Anastomotic leak, %",
+       leftcols = c("studlab", "n", "event"),
+       leftlabs = c("Author, Year (subset)", "N sample", "Events"),
+       rightcols = c("effect", "ci"),
+       rightlabs = c("Proportion, %", "95% CI"),
+       digits = 2,
+       fontsize = 10,
+       spacing = 1,
+       col.square = "grey75",
+       col.diamond.random = "blue",
+       col.predict = "red"
+)
+```
+Diamond -- pooled effect, vertical reference line -- pooled estimate.
+
+\
+The colostomy subgroup was not analyzed separately, as it included only 2 studies. Heterogeneity remained high within each subgroup (I² = 87.4% and 87.3%). Pooled estimates and prediction intervals were similar between subgroups. The test for subgroup difference was not significant (p = 0.878).
+
+```{r}
+#| label: 5-reg-stoma
+#| eval: false
+
+reg.stomy <- df |> 
+ filter_out(is.na(`Anastomotic leak`)) |> 
+ filter(Stomy != "colo") |> 
+ rma.glmm(
+  measure = "PLO",
+  xi = `Anastomotic leak`,
+  ni = N,
+  mods = ~ Stomy,
+  data = _,
+  method = "ML"
+) |> 
+ broom::tidy(conf.int = T, exp = T) |> 
+ mutate(Parameter = c("Intercept", 
+                        "Ileo-/colostomy"),
+        `OR (95% CI)` = ifelse(Parameter == "Intercept", "1", 
+                               paste0(round(estimate, 2), " (", 
+                                      round(conf.low, 2), "; ",
+                                      round(conf.high, 2), ")")),
+        `p-value` = ifelse(Parameter == "Intercept", "-", 
+                           round(p.value, 3))) |> 
+ select(Parameter:`p-value`)
+```
+
+\
+Figure 3. Forest plot for pooled incidence of anastomotic leak in subgroup analysis (design).
+```{r}
+#| label: 6-forest-al-design
+#| fig-width: 9
+#| fig-height: 18
+
+m.prop.sub.design <- update(m.prop, 
+                     subgroup = Design, 
+                     tau.common = F,
+                     prediction.subgroup = T,
+                     method.predict = "HTS")
+
+forest(m.prop.sub.design, 
+       common = F, 
+       random = T, 
+       overall = F, 
+       prediction = F,
+       pooled.totals = T, 
+       pooled.events = T, 
+       backtransf = T,
+       print.I2 = T,
+       print.I2.ci = T, 
+       print.tau2.ci = F,
+       overall.hetstat = F,
+       pscale = 100,
+       xlim = c(0, 30),
+       at = seq(0, 30, 5),
+       smlab = "",
+       xlab = "Anastomotic leak, %",
+       leftcols = c("studlab", "n", "event"),
+       leftlabs = c("Author, Year (subset)", "N sample", "Events"),
+       rightcols = c("effect", "ci"),
+       rightlabs = c("Proportion, %", "95% CI"),
+       digits = 2,
+       fontsize = 10,
+       spacing = 1,
+       col.square = "grey75",
+       col.diamond.random = "blue",
+       col.predict = "red"
+)
+```
+Diamond -- pooled effect, vertical reference line -- pooled estimate.
+
+\
+The analysis included 5 prospective and 4 randomized studies. Heterogeneity also remained fairly high. Due to the small number of studies, pooled estimates and prediction intervals were unstable, and the subgroup difference was not significant (p = 0.216); given the low power of this comparison, this should not be read as evidence that design does not affect the leak rate.
+
+```{r}
+#| label: 7-reg-design
+#| eval: false
+
+df |> 
+ filter_out(is.na(`Anastomotic leak`)) |> 
+ mutate(Design = ifelse(Design == "RCT", "RCT", "non-RCT")) |> 
+ rma.glmm(
+  measure = "PLO",
+  xi = `Anastomotic leak`,
+  ni = N,
+  mods = ~ Design,
+  data = _,
+  method = "ML"
+) |> 
+ broom::tidy(conf.int = T, exp = T) |> 
+ mutate(Parameter = c("Intercept", 
+                        "RCT"),
+        `OR (95% CI)` = ifelse(Parameter == "Intercept", "1", 
+                               paste0(round(estimate, 2), " (", 
+                                      round(conf.low, 2), "; ",
+                                      round(conf.high, 2), ")")),
+        `p-value` = ifelse(Parameter == "Intercept", "-", 
+                           round(p.value, 3))) |> 
+ select(Parameter:`p-value`) |> 
+ tab_ME() |> 
+ align(j = 2:3, align = "center", part = "all")
+```
+
+\
+Figure 4. Forest plot for pooled incidence of anastomotic leak in subgroup analysis (publication year).
+```{r}
+#| label: 8-forest-al-year
+#| fig-width: 9
+#| fig-height: 18
+
+m.prop.sub.year <- update(m.prop, 
+                     subgroup = `Publication Year`, 
+                     tau.common = F,
+                     prediction.subgroup = T,
+                     method.predict = "HTS")
+
+forest(m.prop.sub.year, 
+       common = F, 
+       random = T, 
+       overall = F, 
+       prediction = F,
+       pooled.totals = T, 
+       pooled.events = T, 
+       backtransf = T,
+       print.I2 = T,
+       print.I2.ci = T, 
+       print.tau2.ci = F,
+       overall.hetstat = F,
+       pscale = 100,
+       xlim = c(0, 30),
+       at = seq(0, 30, 5),
+       smlab = "",
+       xlab = "Anastomotic leak, %",
+       leftcols = c("studlab", "n", "event"),
+       leftlabs = c("Author, Year (subset)", "N sample", "Events"),
+       rightcols = c("effect", "ci"),
+       rightlabs = c("Proportion, %", "95% CI"),
+       digits = 2,
+       fontsize = 10,
+       spacing = 1,
+       col.square = "grey75",
+       col.diamond.random = "blue",
+       col.predict = "red"
+)
+```
+Diamond -- pooled effect, vertical reference line -- pooled estimate.
+
+\
+Heterogeneity was similarly high. Regardless of publication year, pooled estimates and prediction intervals were similar, and the subgroup difference was not significant (p = 0.355).
+
+```{r}
+#| label: 9-reg-year
+#| eval: false
+
+df |> 
+ filter_out(is.na(`Anastomotic leak`)) |> 
+ mutate(`Publication Year` = factor(ifelse(`Publication Year` < 2010, "<2010",
+                                    ifelse(`Publication Year` >= 2020, "≥2020", "2010-2019")),
+                                    levels = c("<2010", "2010-2019", "≥2020"))) |> 
+ rma.glmm(
+  measure = "PLO",
+  xi = `Anastomotic leak`,
+  ni = N,
+  mods = ~ `Publication Year`,
+  data = _,
+  method = "ML"
+) |> 
+ broom::tidy(conf.int = T, exp = T) |> 
+ mutate(Parameter = c("Intercept", 
+                        "2010-2019 publication year",
+                        "≥2020 publication year"),
+        `OR (95% CI)` = ifelse(Parameter == "Intercept", "1", 
+                               paste0(round(estimate, 2), " (", 
+                                      round(conf.low, 2), "; ",
+                                      round(conf.high, 2), ")")),
+        `p-value` = ifelse(Parameter == "Intercept", "-", 
+                           round(p.value, 3))) |> 
+ select(Parameter:`p-value`) |> 
+ tab_ME() |> 
+ align(j = 2:3, align = "center", part = "all")
+```
+
+\
+The following figures may be included in the supplementary material.
+
+\
+Figure 5. Forest plot for pooled incidence of all postoperative complications.
+```{r}
+#| label: 10-forest-complications
+#| fig-width: 9
+#| fig-height: 8
+
+m.prop.compl <- df |> 
+ filter_out(is.na(Complications)) |> 
+ metaprop(event = Complications,
+          n = N,
+          studlab = Author_year,
+          data = _,
+          method = "GLMM",
+          sm = "PLOGIT",
+          common = F,
+          random = T,
+          prediction = T,
+          method.random.ci = "HK",
+          method.predict = "HTS")
+
+forest(m.prop.compl, 
+       common = F, 
+       random = T, 
+       overall = T, 
+       prediction = T,
+       pooled.totals = T, 
+       pooled.events = T, 
+       backtransf = T,
+       print.I2.ci = T, 
+       print.tau2.ci = F,
+       pscale = 100,
+       xlim = c(0, 100),
+       at = seq(0, 100, 10),
+       smlab = "",
+       xlab = "30-day morbidity, %",
+       leftcols = c("studlab", "n", "event"),
+       leftlabs = c("Author, Year (subset)", "N sample", "Events"),
+       rightcols = c("effect", "ci"),
+       rightlabs = c("Proportion, %", "95% CI"),
+       digits = 2,
+       fontsize = 10,
+       spacing = 1,
+       col.square = "grey75",
+       col.diamond.random = "blue",
+       col.predict = "red"
+       )
+```
+Diamond -- pooled effect, vertical reference line -- pooled estimate.
+
+\
+The pooled estimate was 32.85% (95% CI 27.37; 38.84), with a prediction interval of 10.97%; 66.02%. Despite known underreporting of postoperative complications (Clavien-Dindo grade 1 events are rarely documented in the medical records used for retrospective studies), the prediction interval spans a fairly wide range.
+
+\
+Figure 6. Forest plot for pooled incidence of severe postoperative complications (Clavien-Dindo Grade 3-5).
+```{r}
+#| label: 11-forest-severe-complications
+#| fig-width: 9
+#| fig-height: 7
+
+m.prop.compl.sev <- df |> 
+ filter_out(is.na(`Severe complications`)) |> 
+ metaprop(event = `Severe complications`,
+          n = N,
+          studlab = Author_year,
+          data = _,
+          method = "GLMM",
+          sm = "PLOGIT",
+          common = F,
+          random = T,
+          prediction = T,
+          method.random.ci = "HK",
+          method.predict = "HTS")
+
+forest(m.prop.compl.sev, 
+       common = F, 
+       random = T, 
+       overall = T, 
+       prediction = T,
+       pooled.totals = T, 
+       pooled.events = T, 
+       backtransf = T,
+       print.I2.ci = T, 
+       print.tau2.ci = F,
+       pscale = 100,
+       xlim = c(0, 50),
+       at = seq(0, 50, 10),
+       smlab = "",
+       xlab = "Severe complications, %",
+       leftcols = c("studlab", "n", "event"),
+       leftlabs = c("Author, Year (subset)", "N sample", "Events"),
+       rightcols = c("effect", "ci"),
+       rightlabs = c("Proportion, %", "95% CI"),
+       digits = 2,
+       fontsize = 10,
+       spacing = 1,
+       col.square = "grey75",
+       col.diamond.random = "blue",
+       col.predict = "red"
+       )
+```
+Diamond -- pooled effect, vertical reference line -- pooled estimate.
+
+\
+The results are qualitatively similar to those reported above.
+
+\
+Figure 7. Forest plot for pooled incidence of mortality.
+```{r}
+#| label: 12-forest-mortality
+#| fig-width: 9
+#| fig-height: 6
+
+m.prop.death <- df |> 
+ filter_out(is.na(Mortality)) |> 
+ metaprop(event = Mortality,
+          n = N,
+          studlab = Author_year,
+          data = _,
+          method = "GLMM",
+          sm = "PLOGIT",
+          common = F,
+          random = T,
+          prediction = T,
+          method.random.ci = "HK",
+          method.predict = "HTS")
+
+forest(m.prop.death, 
+       common = F, 
+       random = T, 
+       overall = T, 
+       prediction = T,
+       pooled.totals = T, 
+       pooled.events = T, 
+       backtransf = T,
+       print.I2.ci = T, 
+       print.tau2.ci = F,
+       pscale = 100,
+       xlim = c(0, 10),
+       at = seq(0, 10, 1),
+       smlab = "",
+       xlab = "30-day mortality, %",
+       leftcols = c("studlab", "n", "event"),
+       leftlabs = c("Author, Year (subset)", "N sample", "Events"),
+       rightcols = c("effect", "ci"),
+       rightlabs = c("Proportion, %", "95% CI"),
+       digits = 2,
+       fontsize = 10,
+       spacing = 1,
+       col.square = "grey75",
+       col.diamond.random = "blue",
+       col.predict = "red"
+       )
+```
+Diamond -- pooled effect, vertical reference line -- pooled estimate.
+
+\
+Despite high heterogeneity, the pooled estimate was 0.91% (95% CI 0.60; 1.38), with a prediction interval of 0.23%; 3.57%. The expected mortality after TME with primary anastomosis and a defunctioning stoma is fairly low.
+
+\
+The following results should be incorporated into the main text.
+
+\
+Figure 8. Funnel plot to show publication bias.
+```{r}
+#| label: 13-funnel
+#| fig-width: 9
+#| fig-height: 4.5
+
+par(mfrow = c(1,2))
+
+funnel(m.prop,
+       studlab = F, 
+       xlim = c(-5,0), 
+       ylim = c(0.7, 0), 
+       main = "All studies")
+
+m.prop.sub150 <- df |> 
+ filter_out(is.na(`Anastomotic leak`)) |> 
+ filter_out(N < 150) |> 
+ metaprop(event = `Anastomotic leak`,
+          n = N,
+          studlab = Author_year,
+          data = _,
+          method = "GLMM",
+          sm = "PLOGIT",
+          common = F,
+          random = T,
+          prediction = T,
+          method.random.ci = "HK",
+          method.predict = "HTS")
+
+funnel(m.prop.sub150,
+       studlab = F, 
+       xlim = c(-5,0), 
+       ylim = c(0.7, 0), 
+       main = "Studies with n ≥ 150")
+```
+
+\
+The "All studies" plot shows visible asymmetry, but Peters' test does not confirm it as statistically significant (p `r p_peters_all <- metabias(m.prop, method.bias = "peters")$p.value; ifelse(p_peters_all < 0.001, "< 0.001", paste0("= ", round(p_peters_all, 3)))`). Restricting the analysis to studies with a sample size of at least 150 (k = `r m.prop.sub150$k`) does not change this conclusion (p `r p_peters_150 <- metabias(m.prop.sub150, method.bias = "peters")$p.value; ifelse(p_peters_150 < 0.001, "< 0.001", paste0("= ", round(p_peters_150, 3)))`).
+
+\
+Figure 9. Funnel plot with Trim-and-fill method.
+```{r}
+#| label: 14-funnel-trimfill
+#| fig-width: 6
+#| fig-height: 5
+
+par(mfrow = c(1,1))
+
+m.prop.trim <- trimfill(m.prop)
+
+trimfill(m.prop) |> 
+ funnel(studlab = F, 
+       xlim = c(-5,0), 
+       ylim = c(0.7, 0))
+
+legend("topleft",
+       legend = c("Observed studies",
+                  "Imputed studies"),
+       pch = 21,
+       pt.bg = c("grey65", "white"),
+       col = "black",
+       pt.cex = 1.2,
+       cex = 1,
+       bty = "n",
+       inset = 0.02)
+```
+
+\
+As a sensitivity analysis, the Duval & Tweedie trim-and-fill method was applied to impute studies that would restore funnel-plot symmetry, providing an estimate of the pooled effect if the visually observed (but not statistically confirmed) asymmetry were driven by publication bias. The funnel plot shows the effect that the imputed studies (n = 25) would need to have.
+
+\
+As part of the sensitivity analysis, we decided to supplement the GLMM results with those from the inverse-variance method and the Duval & Tweedie trim-and-fill method, to assess the robustness of the findings.
+
+\
+Table 2. Comparison of several methods for estimating the pooled effect.
+```{r}
+#| label: 15-method-comparison
+
+m.prop.IV <- df |> 
+ filter_out(is.na(`Anastomotic leak`)) |> 
+ mutate(`Publication Year` = factor(ifelse(`Publication Year` < 2010, "<2010",
+                                    ifelse(`Publication Year` >= 2020, "≥2020", "2010-2019")),
+                                    levels = c("<2010", "2010-2019", "≥2020"))) |> 
+ metaprop(event = `Anastomotic leak`,
+          n = N,
+          studlab = Author_year,
+          data = _,
+          method = "Inverse",
+          sm = "PLOGIT",
+          common = F,
+          random = T,
+          prediction = T,
+          method.random.ci = "HK",
+          method.predict = "HTS")
+
+to_percent <- function(x) 100 * plogis(x)
+
+tibble(Model = c("GLMM", "IV", "Trim-and-fill method"),
+       Estimate = c(to_percent(m.prop$TE.random), to_percent(m.prop.IV$TE.random),
+                    to_percent(m.prop.trim$TE.random)),
+       CI_lower = c(to_percent(m.prop$lower.random), to_percent(m.prop.IV$lower.random),
+                    to_percent(m.prop.trim$lower.random)),
+       CI_upper = c(to_percent(m.prop$upper.random), to_percent(m.prop.IV$upper.random),
+                    to_percent(m.prop.trim$upper.random)),
+       PI_lower = c(to_percent(m.prop$lower.predict), to_percent(m.prop.IV$lower.predict),
+                    to_percent(m.prop.trim$lower.predict)),
+       PI_upper = c(to_percent(m.prop$upper.predict), to_percent(m.prop.IV$upper.predict),
+                    to_percent(m.prop.trim$upper.predict))
+) |>
+  mutate(`Pooled proportion\n(95% CI)` = sprintf("%.2f%% (%.2f; %.2f)",
+                                              Estimate, CI_lower, CI_upper),
+         `95% prediction interval` = sprintf("%.2f%%; %.2f%%", PI_lower, PI_upper)) |>
+  select(Model,
+         `Pooled proportion\n(95% CI)`,
+         `95% prediction interval`) |> 
+ tab_ME() |> 
+ align(j = 2:3, align = "center", part = "all")
+```
+GLMM -- generalized linear mixed-effects model, IV -- inverse-variance, Trim-and-fill method -- Duval & Tweedie trim and fill method.
+
+\
+Results of the GLMM and IV methods are similar. However, the estimate recovered by the Duval & Tweedie trim-and-fill method suggests that the risk of anastomotic leak may be higher, based on the prediction interval.
+
+# References
+
+Balduzzi, S., Rücker, G., & Schwarzer, G. (2019). How to perform a meta-analysis with R: a practical tutorial. *Evidence-Based Mental Health*, 22(4), 153-160.
+
+Borenstein, M., & Higgins, J. P. T. (2013). Meta-analysis and subgroups. *Prevention Science*, 14(2), 134-143.
+
+Duval, S., & Tweedie, R. (2000). Trim and fill: a simple funnel-plot-based method of testing and adjusting for publication bias in meta-analysis. *Biometrics*, 56(2), 455-463.
+
+Harrer, M., Cuijpers, P., Furukawa, T. A., & Ebert, D. D. (2021). *dmetar: Companion R Package For The Guide 'Doing Meta-Analysis in R'*.
+
+Higgins, J. P. T., & Thompson, S. G. (2002). Quantifying heterogeneity in a meta-analysis. *Statistics in Medicine*, 21(11), 1539-1558.
+
+Higgins, J. P. T., Thompson, S. G., & Spiegelhalter, D. J. (2009). A re-evaluation of random-effects meta-analysis. *Journal of the Royal Statistical Society: Series A*, 172(1), 137-159.
+
+Knapp, G., & Hartung, J. (2003). Improved tests for a random effects meta-regression with a single covariate. *Statistics in Medicine*, 22(17), 2693-2710.
+
+Peters, J. L., Sutton, A. J., Jones, D. R., Abrams, K. R., & Rushton, L. (2006). Comparison of two methods to detect publication bias in meta-analysis. *JAMA*, 295(6), 676-680.
+
+Schwarzer, G., Carpenter, J. R., & Rücker, G. (2015). *Meta-Analysis with R*. Cham, Switzerland: Springer International Publishing.
+
+Viechtbauer, W. (2005). Bias and efficiency of meta-analytic variance estimators in the random-effects model. *Journal of Educational and Behavioral Statistics*, 30(3), 261-293.
+
+Viechtbauer, W. (2010). Conducting meta-analyses in R with the metafor package. *Journal of Statistical Software*, 36(3), 1-48.
